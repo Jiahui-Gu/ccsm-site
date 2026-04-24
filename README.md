@@ -20,7 +20,7 @@ wrangler login            # opens browser
 wrangler pages deploy . --project-name=ccsm
 ```
 
-The deploy publishes to `https://ccsm.pages.dev`.
+The Cloudflare project is `ccsm`; the assigned subdomain is `https://ccsm-1io.pages.dev` (the bare `ccsm.pages.dev` was taken).
 
 ## License
 
