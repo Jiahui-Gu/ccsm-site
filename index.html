@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ccsm — Claude Code Session Manager</title>
+  <meta name="description" content="A desktop GUI for Claude Code that thinks in tasks, not repos. Group parallel agent sessions across multiple repositories with the visual density of a CLI and the interaction model of a native app." />
+  <meta property="og:title" content="ccsm — Claude Code Session Manager" />
+  <meta property="og:description" content="A desktop GUI for Claude Code that thinks in tasks, not repos." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23121519'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='ui-monospace,monospace' font-size='18' font-weight='700' fill='%2378d4ff'%3E%E2%97%89%3C/text%3E%3C/svg%3E" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Tailwind config: bring in the design tokens that match the app.
+    // We mirror the dark palette from agentory-next/global.css here so the
+    // marketing site reads as a sibling, not a stranger.
+    tailwind.config = {
+      darkMode: 'media',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['ui-sans-serif','system-ui','-apple-system','"Segoe UI"','sans-serif'],
+            mono: ['ui-monospace','"SF Mono"','Menlo','Consolas','"JetBrains Mono"','monospace'],
+          },
+          colors: {
+            // Dark palette (default). Light overrides via CSS vars below.
+            bg:       'var(--bg)',
+            panel:    'var(--panel)',
+            elevated: 'var(--elevated)',
+            border:   'var(--border)',
+            borderS:  'var(--border-strong)',
+            fg:       'var(--fg)',
+            fg2:      'var(--fg2)',
+            fg3:      'var(--fg3)',
+            accent:   'var(--accent)',
+            accentQ:  'var(--accent-quiet)',
+          },
+          maxWidth: {
+            site: '1100px',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    :root {
+      --bg:           #1a1d22;
+      --panel:        #1d2126;
+      --elevated:     #262a30;
+      --border:       #303640;
+      --border-strong:#454c58;
+      --fg:           #e8eaed;
+      --fg2:          #b9bdc4;
+      --fg3:          #8a8f97;
+      --accent:       #78d4ff;
+      --accent-quiet: #6db4d4;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg:           #fbfcfd;
+        --panel:        #ffffff;
+        --elevated:     #f4f6f8;
+        --border:       #e2e6ec;
+        --border-strong:#c2c8d2;
+        --fg:           #1b1f25;
+        --fg2:          #4a525c;
+        --fg3:          #707782;
+        --accent:       #1e88c4;
+        --accent-quiet: #2c7aa8;
+      }
+    }
+    html, body { background: var(--bg); color: var(--fg); }
+    body { font-feature-settings: "ss01","cv11"; -webkit-font-smoothing: antialiased; }
+
+    /* Apple-spring transitions on every interactive element. */
+    a, button { transition: color 180ms cubic-bezier(0.32,0.72,0,1),
+                              background-color 180ms cubic-bezier(0.32,0.72,0,1),
+                              border-color 180ms cubic-bezier(0.32,0.72,0,1),
+                              transform 180ms cubic-bezier(0.32,0.72,0,1); }
+    a:focus-visible, button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+
+    /* Subtle dot grid in hero, dev-tool flavor. */
+    .dotgrid {
+      background-image: radial-gradient(var(--border) 1px, transparent 1px);
+      background-size: 22px 22px;
+      background-position: -1px -1px;
+    }
+
+    /* Screenshot frame: hairline border + soft shadow, no rounded-soft cards. */
+    .shot {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.04) inset,
+        0 1px 2px rgba(0,0,0,0.25),
+        0 12px 40px rgba(0,0,0,0.30);
+    }
+    @media (prefers-color-scheme: light) {
+      .shot {
+        box-shadow:
+          0 1px 0 rgba(0,0,0,0.02) inset,
+          0 1px 2px rgba(0,0,0,0.06),
+          0 12px 40px rgba(40,50,70,0.10);
+      }
+    }
+
+    /* Block-style ASCII tag, picked up from CLI rendering. */
+    .tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      color: var(--fg3);
+      text-transform: lowercase;
+    }
+
+    /* Buttons. raised = dark elevated tile in dark, white tile in light. */
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 16px;
+      font-weight: 500; font-size: 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border-strong);
+      background: var(--elevated);
+      color: var(--fg);
+    }
+    .btn:hover { background: color-mix(in oklab, var(--elevated) 85%, var(--fg) 15%); }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary {
+      background: var(--accent);
+      color: #0c1116;
+      border-color: transparent;
+      font-weight: 600;
+    }
+    .btn-primary:hover {
+      background: color-mix(in oklab, var(--accent) 90%, white 10%);
+    }
+
+    /* Inline code. */
+    code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, "JetBrains Mono", monospace; }
+    code.inline {
+      background: var(--elevated);
+      border: 1px solid var(--border);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+
+    /* Section divider — single hairline, no big margins. */
+    .rule { border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body class="font-sans">
+
+  <!-- Top nav: minimal, no logo wash, just text + ASCII bullet. -->
+  <header class="border-b border-border">
+    <div class="max-w-site mx-auto px-6 h-14 flex items-center justify-between">
+      <a href="#" class="flex items-center gap-2 font-mono text-sm text-fg">
+        <span class="text-accent">◉</span>
+        <span>ccsm</span>
+        <span class="text-fg3 hidden sm:inline">— Claude Code Session Manager</span>
+      </a>
+      <nav class="flex items-center gap-5 text-sm text-fg2">
+        <a href="#why" class="hover:text-fg">why</a>
+        <a href="#features" class="hover:text-fg">features</a>
+        <a href="#install" class="hover:text-fg">install</a>
+        <a href="https://github.com/Jiahui-Gu/Agentory-next" class="hover:text-fg">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- =========== 1. HERO =========== -->
+  <section class="dotgrid border-b border-border">
+    <div class="max-w-site mx-auto px-6 pt-16 pb-20">
+      <div class="flex items-center gap-2 mb-5">
+        <span class="tag">[ desktop · windows · early ]</span>
+      </div>
+      <h1 class="text-4xl sm:text-5xl md:text-6xl font-semibold tracking-tight leading-[1.05]">
+        Claude Code,<br/>
+        organized by <span class="text-accent">task</span>.
+      </h1>
+      <p class="mt-6 text-lg sm:text-xl text-fg2 max-w-2xl leading-relaxed">
+        ccsm is a desktop GUI for Claude Code. Group parallel agent sessions across
+        multiple repositories the way you actually work — by task, not by folder.
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <a class="btn btn-primary" href="https://github.com/Jiahui-Gu/Agentory-next/releases/latest">
+          Download for Windows
+          <span class="font-mono text-xs opacity-70">.exe</span>
+        </a>
+        <a class="btn" href="https://github.com/Jiahui-Gu/Agentory-next">
+          View on GitHub
+        </a>
+        <span class="text-fg3 text-sm font-mono">macOS &amp; Linux — soon</span>
+      </div>
+
+      <!-- Hero screenshot. Real screenshot from dogfood-logs. -->
+      <figure class="mt-14">
+        <div class="shot rounded-md overflow-hidden">
+          <img src="assets/hero-import-list.png"
+               alt="ccsm main window: sidebar with grouped sessions, conversation pane, tool block view"
+               class="block w-full h-auto" />
+        </div>
+        <figcaption class="mt-3 text-xs font-mono text-fg3">
+          ccsm main view — sidebar groups (left), conversation (center), per-session detail (right).
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- =========== 2. WHY =========== -->
+  <section id="why" class="border-b border-border">
+    <div class="max-w-site mx-auto px-6 py-20">
+      <p class="tag mb-3">// why ccsm</p>
+      <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight">
+        Three things the CLI doesn't give you.
+      </h2>
+
+      <div class="mt-12 grid gap-10 md:grid-cols-3">
+        <div>
+          <div class="font-mono text-accent text-sm mb-3">01 / groups</div>
+          <h3 class="text-lg font-semibold mb-2">Group sessions by task, not by repo.</h3>
+          <p class="text-fg2 leading-relaxed text-[15px]">
+            Real engineering work spans multiple repos — your workspace should too.
+            A group is a task; sessions inside it can live in any directory.
+            No more browser-tab juggling between five terminal windows.
+          </p>
+        </div>
+        <div>
+          <div class="font-mono text-accent text-sm mb-3">02 / sdk-native</div>
+          <h3 class="text-lg font-semibold mb-2">Built on the Claude Agent SDK.</h3>
+          <p class="text-fg2 leading-relaxed text-[15px]">
+            Same engine as the official CLI, packaged for daily-driver use.
+            Your <code class="inline">claude</code> install, your credentials, your
+            existing <code class="inline">~/.claude</code> sessions — ccsm reads them
+            in place, doesn't fork them.
+          </p>
+        </div>
+        <div>
+          <div class="font-mono text-accent text-sm mb-3">03 / blocks</div>
+          <h3 class="text-lg font-semibold mb-2">Tools as first-class blocks.</h3>
+          <p class="text-fg2 leading-relaxed text-[15px]">
+            Permission prompts, plans, tool calls, edit diffs, terminal output — each
+            renders as its own structured block. Not buried in a chat bubble, not
+            stripped of ANSI color, not collapsed to a one-line summary you can't read.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== 3. FEATURES =========== -->
+  <section id="features" class="border-b border-border">
+    <div class="max-w-site mx-auto px-6 py-20">
+      <p class="tag mb-3">// features</p>
+      <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight">
+        What's in the box.
+      </h2>
+
+      <!-- Feature row 1: groups -->
+      <div class="mt-16 grid gap-10 md:grid-cols-5 items-center">
+        <div class="md:col-span-3 shot rounded-md overflow-hidden order-2 md:order-1">
+          <img src="assets/feature-after-import.png"
+               alt="Sidebar with multiple groups, each containing sessions across different repositories"
+               class="block w-full h-auto" />
+        </div>
+        <div class="md:col-span-2 order-1 md:order-2">
+          <div class="font-mono text-accent text-sm mb-2">session groups</div>
+          <h3 class="text-xl font-semibold mb-3">A sidebar that thinks like you.</h3>
+          <p class="text-fg2 leading-relaxed text-[15px]">
+            Drag sessions between groups. Collapse the ones you're not on.
+            A breathing amber dot tells you which background agent needs your input —
+            no manual "status" field to maintain.
+          </p>
+        </div>
+      </div>
+
+      <!-- Feature row 2: permission system -->
+      <div class="mt-20 grid gap-10 md:grid-cols-5 items-center">
+        <div class="md:col-span-2">
+          <div class="font-mono text-accent text-sm mb-2">permission system</div>
+          <h3 class="text-xl font-semibold mb-3">Allow / Allow always / Reject — inline.</h3>
+          <p class="text-fg2 leading-relaxed text-[15px]">
+            Tool permission requests render where they happen, with the actual
+            input visible as structured data. One click to approve, one to remember
+            the decision for the rest of the session.
+          </p>
+        </div>
+        <div class="md:col-span-3 shot rounded-md overflow-hidden">
+          <img src="assets/feature-perm.png"
+               alt="A permission prompt rendered inline with the conversation, showing Allow / Allow always / Reject options"
+               class="block w-full h-auto" />
+        </div>
+      </div>
+
+      <!-- Feature row 3: tool blocks -->
+      <div class="mt-20 grid gap-10 md:grid-cols-5 items-center">
+        <div class="md:col-span-3 shot rounded-md overflow-hidden order-2 md:order-1">
+          <img src="assets/feature-tools.png"
+               alt="Bash output, edit diffs, and plan blocks rendered as collapsible structured blocks"
+               class="block w-full h-auto" />
+        </div>
+        <div class="md:col-span-2 order-1 md:order-2">
+          <div class="font-mono text-accent text-sm mb-2">tool block rendering</div>
+          <h3 class="text-xl font-semibold mb-3">Bash, Edit, Plan — each a block you can read.</h3>
+          <p class="text-fg2 leading-relaxed text-[15px]">
+            Terminal output preserves ANSI color. Edits show as diffs.
+            Plans render as checklists. Long tool calls collapse, but never
+            truncate — the full output is one click away.
+          </p>
+        </div>
+      </div>
+
+      <!-- Feature row 4: import -->
+      <div class="mt-20 grid gap-10 md:grid-cols-5 items-center">
+        <div class="md:col-span-2">
+          <div class="font-mono text-accent text-sm mb-2">bring your sessions</div>
+          <h3 class="text-xl font-semibold mb-3">Imports your existing Claude Code sessions.</h3>
+          <p class="text-fg2 leading-relaxed text-[15px]">
+            ccsm reads conversation history directly from
+            <code class="inline">~/.claude/projects/</code>. Nothing is duplicated,
+            nothing is migrated. Open ccsm, see the work you already did.
+          </p>
+        </div>
+        <div class="md:col-span-3 shot rounded-md overflow-hidden">
+          <img src="assets/feature-ux-hint.png"
+               alt="Import flow showing existing Claude Code sessions detected from the local filesystem"
+               class="block w-full h-auto" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== 4. INSTALL =========== -->
+  <section id="install" class="border-b border-border">
+    <div class="max-w-site mx-auto px-6 py-20">
+      <p class="tag mb-3">// get started</p>
+      <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight">
+        Three steps. Two minutes.
+      </h2>
+
+      <ol class="mt-12 grid gap-8 md:grid-cols-3 list-none">
+        <li>
+          <div class="font-mono text-accent text-sm mb-2">step 1</div>
+          <h3 class="font-semibold mb-2">Download the installer.</h3>
+          <p class="text-fg2 text-[15px] leading-relaxed">
+            Grab the latest <code class="inline">.exe</code> from
+            <a class="text-accent hover:underline" href="https://github.com/Jiahui-Gu/Agentory-next/releases/latest">Releases</a>.
+            Windows 10 or later.
+          </p>
+        </li>
+        <li>
+          <div class="font-mono text-accent text-sm mb-2">step 2</div>
+          <h3 class="font-semibold mb-2">Run it.</h3>
+          <p class="text-fg2 text-[15px] leading-relaxed">
+            Standard installer. No admin needed.
+            Roughly 200 MB on disk.
+          </p>
+        </li>
+        <li>
+          <div class="font-mono text-accent text-sm mb-2">step 3</div>
+          <h3 class="font-semibold mb-2">Launch.</h3>
+          <p class="text-fg2 text-[15px] leading-relaxed">
+            First-launch wizard auto-detects your <code class="inline">claude</code> binary.
+            Don't have one yet?
+            <a class="text-accent hover:underline" href="https://docs.anthropic.com/claude/docs/claude-code">Install Claude Code first</a>
+            — <code class="inline">npm i -g @anthropic-ai/claude-code</code>.
+          </p>
+        </li>
+      </ol>
+
+      <div class="mt-12 border border-border bg-panel rounded-md p-5 text-sm text-fg2 font-mono leading-relaxed">
+        <span class="text-fg3">$</span> npm i -g @anthropic-ai/claude-code<br/>
+        <span class="text-fg3">$</span> claude  <span class="text-fg3"># once, to log in</span><br/>
+        <span class="text-fg3">$</span> <span class="text-fg">open ccsm</span>
+      </div>
+
+      <p class="mt-6 text-fg3 text-sm">
+        ccsm makes zero direct calls to Anthropic. All API traffic flows through
+        your local <code class="inline">claude</code> binary, with your existing credentials.
+        macOS and Linux builds are coming.
+      </p>
+    </div>
+  </section>
+
+  <!-- =========== 5. FOOTER =========== -->
+  <footer>
+    <div class="max-w-site mx-auto px-6 py-12 grid gap-6 md:grid-cols-2 items-start">
+      <div>
+        <div class="flex items-center gap-2 font-mono text-sm">
+          <span class="text-accent">◉</span>
+          <span>ccsm</span>
+        </div>
+        <p class="mt-3 text-sm text-fg3 max-w-md">
+          Built by <a class="text-fg2 hover:text-fg" href="https://github.com/Jiahui-Gu">Jiahui-Gu</a>, 2026.
+          Not affiliated with Anthropic. Claude and Claude Code are trademarks of
+          their respective owners.
+        </p>
+      </div>
+      <div class="flex gap-6 text-sm md:justify-end font-mono">
+        <a class="text-fg2 hover:text-fg" href="https://github.com/Jiahui-Gu/Agentory-next">app repo</a>
+        <a class="text-fg2 hover:text-fg" href="https://github.com/Jiahui-Gu/ccsm-site">site repo</a>
+        <a class="text-fg2 hover:text-fg" href="https://github.com/Jiahui-Gu/Agentory-next/issues">issues</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
